@@ -1,0 +1,47 @@
+
+
+Filename - parts:
+file_pattern=*WV*
+sss=joy
+lll=l1
+var=humr
+instr=dial
+kkk=vitII
+
+# Global attributes NetCDF:
+License = "CC BY 4.0; For non-commercial use only. This data is subject to the HD(CP)² data policy to be found at www.hdcp2.eu and in the HD(CP)² Observation Data Product standard."
+# Title=dial_humr
+# Institution=IGMK
+# Contact_person=Alexander Pschera (apscher1@uni-koeln.de)
+# Source=Vaisala DIAL Atmospheric Profiler DA10-4
+# History="Data processed with SAMD compiling script: https://github.com/apschera2023uzk/DIAL2SAMD"
+# Author="Alexander Pschera"
+
+# Global attributes XML file:
+
+
+
+#########################################
+# Syntax explained:
+
+# Comments will be ignored
+
+# Numerische Werte
+# learning_rate = 0.001
+
+# Strings (mit oder ohne Anführungszeichen)
+# campaign_name = "FESSTVaL"
+
+# Booleans
+# use_gpu = true
+
+# None / Null
+# logdir = None
+
+# Listen (werden zu Python-Listen geparsed)
+# channels = 22.24, 26.24, 30.0, 31.4
+# mwr_names = "dwdhat", "foghat", "sunhat"
+
+# Gemischtes geht auch (alles wird elementweise geparst)
+# mixed_list = 1, 2.5, true, "hello", None
+
