@@ -186,6 +186,107 @@ def remove_lowercase_duplicates(attrs: dict) -> dict:
 
 ############################################################################## 
 
+def order_attrs(ds, desired_order=None, inplace=False):
+    """
+    Return a dataset with its .attrs ordered.
+    """
+    if desired_order is None:
+        desired_order = ["Title", "Institution", "Contact_person", "Source",\
+        "History", "Dependencies", "Conventions", "Processing_date", "Author",\
+         "Comments", "License"]
+
+    target = ds if inplace else ds.copy()
+
+    ordered = {k: target.attrs[k] for k in desired_order if k in target.attrs}
+    for k, v in target.attrs.items():
+        if k not in ordered:
+            ordered[k] = v
+
+    target.attrs = ordered
+    return target
+
+
+############################################################################## 
+
+
+def adhere2metadata_name_convs(ds):
+    rename_map = {"title": "Title", "institution": "Institution",\
+         "source": "Source", "comment": "Comments",\
+         "dependencies": "Dependencies","comments": "Comments",\
+         "conventions": "Conventions","conventions": "Conventions",\
+         "author": "Author", "license": "License", "authors": "Author",\
+         "history": "History"}
+
+    for old, new in rename_map.items():
+        if old in ds.attrs:
+            ds.attrs[new] = ds.attrs.pop(old)
+
+    return ds    
+
+############################################################################## 
+
+def add_default_metadata(ds):
+    """
+    Add default global metadata attributes to ds.attrs.
+    Hard-coded defaults; can be overwritten elsewhere in the code.
+    """
+    processing_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    defaults = {
+        "Title": "Vaisala DIAL Atmospheric Profiler DA10-4",
+        "Institution":
+        "Institute of Geophysics and Meteorology (IGMK) University of Cologne",
+        "Source": "DA10-4",
+        "History":\
+   "Processed with dial2samd.py: https://github.com/apschera2023uzk/DIAL2SAMD",
+        "Conventions": "CF-1.8",
+        "Comments": "",
+        "Dependencies": "external",
+        "Processing_date": processing_date,
+        "Contact_person": "Ulrich Loehnert (Loehnert@meteo.uni-koeln.de)",
+        "Author": "Ulrich Loehnert (Loehnert@meteo.uni-koeln.de)",
+        "License": (
+            "CC BY 4.0; For non-commercial use only. This data is subject to the "
+            "HD(CP)² data policy to be found at https://www.hdcp2.eu and in the "
+            "HD(CP)² Observation Data Product standard."
+        ),
+    }
+
+    # Add defaults without overwriting existing attrs
+    for key, value in defaults.items():
+        ds.attrs.setdefault(key, value)
+
+    return ds
+
+
+############################################################################## 
+
+def add_config_values2metadata(ds, config=config):
+    for key, var in config.items():
+        ds.attrs[key] = var
+    return ds
+
+############################################################################## 
+
+def add_samd_attributes(ds: xr.Dataset, config=config) -> xr.Dataset:
+
+    # 1st Rename different naming conventions in ds:
+    ds_new = adhere2metadata_name_convs(ds)  
+
+    # 2nd Add all default values to ds (if they are missing):
+    ds_new = add_default_metadata(ds_new)
+
+    # 3rd replace dataset or default values by config-values:
+    ds_new = add_config_values2metadata(ds_new)
+
+    # 4th order compulsory attributes up:
+    ds_new = order_attrs(ds_new)
+
+    return ds_new
+
+############################################################################## 
+############################################################################## 
+############################################################################## 
+
 def write_samd_metadata_xml(
     ds: xr.Dataset,
     args, outfile,
@@ -659,291 +760,6 @@ def write_samd_metadata_xml(
     tree.write(xml_path, encoding="utf-8", xml_declaration=True)
 
     return xml_path
-   
-##############################################################################
-    
-def add_samd_attributes(ds: xr.Dataset, config=config) -> xr.Dataset:
-
-    def _as_str(val: Any) -> str:
-        if val is None:
-            return ""
-        return str(val).strip()
-
-    def _is_provided(val: Any) -> bool:
-        """True if val is non-empty after stripping (for strings) or non-None for other types."""
-        if val is None:
-            return False
-        if isinstance(val, str):
-            return val.strip() != ""
-        return True
-
-    def _pick_from_config(*keys: str) -> Optional[Any]:
-        """Return the first provided config value among keys, else None."""
-        for k in keys:
-            if k in config and _is_provided(config[k]):
-                return config[k]
-        return None
-
-    def _pick_from_ds(*keys: str) -> Optional[Any]:
-        """Return the first provided ds.attrs value among keys, else None."""
-        for k in keys:
-            if k in ds.attrs and _is_provided(ds.attrs[k]):
-                return ds.attrs[k]
-        return None
-
-    def _resolve_attr(
-        std_key: str,
-        config_keys: tuple[str, ...],
-        ds_keys: tuple[str, ...],
-        default: str,
-        transform=lambda x: x,
-    ) -> str:
-        """
-        Resolve attribute with priority: config -> ds.attrs -> default.
-        Returns a *string* (SAMD global attrs are strings in typical usage).
-        """
-        v = _pick_from_config(*config_keys)
-        if v is None:
-            v = _pick_from_ds(*ds_keys)
-        if v is None:
-            v = default
-        return _as_str(transform(v))
-
-    def _as_float(val: Any) -> Optional[float]:
-        if val is None:
-            return None
-        if isinstance(val, (float, int, np.floating, np.integer)):
-            return float(val)
-        s = str(val).strip()
-        if not s:
-            return None
-        return float(s)
-
-    # ---------- Defaults for Vital II / DIAL ----------
-    default_title = "VITAL II (vitII) DIAL observations (compiled files)"
-    default_institution = "University of Cologne / IGMK"
-    default_contact = "Alexander Pschera (apscher1@uni-koeln.de)"
-    default_source = "Vaisala DIAL Atmospheric Profiler DA10-4"
-    default_conventions = "CF-1.8"
-    default_dependencies = "external"
-    default_comments = "none"
-    default_license = "CC BY 4.0; subject to SAMD policy"
-    
-    # ---------- Resolve SAMD global attributes ----------
-    title = _resolve_attr(
-        "Title",
-        config_keys=("Title", "title"),
-        ds_keys=("Title", "title"),
-        default=default_title,
-    )
-
-    institution = _resolve_attr(
-        "Institution",
-        config_keys=("Institution", "institution"),
-        ds_keys=("Institution", "institution"),
-        default=default_institution,
-    )
-
-    contact_person = _resolve_attr(
-        "Contact_person",
-        config_keys=("Contact_person", "contact_person", "Contact", "contact"),
-        ds_keys=("Contact_person", "contact_person", "Contact", "contact"),
-        default=default_contact,
-    )
-
-    source = _resolve_attr(
-        "Source",
-        config_keys=("Source", "source"),
-        ds_keys=("Source", "source"),
-        default=default_source,
-    )
-
-    conventions = _resolve_attr(
-        "Conventions",
-        config_keys=("Conventions", "conventions"),
-        ds_keys=("Conventions", "conventions"),
-        default=default_conventions,
-    )
-
-    dependencies = _resolve_attr(
-        "Dependencies",
-        config_keys=("Dependencies", "dependencies"),
-        ds_keys=("Dependencies", "dependencies"),
-        default=default_dependencies,
-    )
-
-    author = _resolve_attr(
-        "Author",
-        config_keys=("Author", "author"),
-        ds_keys=("Author", "author"),
-        default=_as_str(_pick_from_config("Contact_person", "contact_person") or default_contact),
-    )
-
-    # Comments must be filled; if missing everywhere -> "none"
-    comments = _resolve_attr(
-        "Comments",
-        config_keys=("Comments", "comments", "comment"),
-        ds_keys=("Comments", "comments", "comment"),
-        default=default_comments,
-    )
-    if comments == "":
-        comments = "none"
-
-    license_ = _resolve_attr(
-        "License",
-        config_keys=("License", "license"),
-        ds_keys=("License", "license"),
-        default=default_license,
-    )
-    if license_ == "":
-        license_ = default_license
-
-    # Processing_date: config -> ds -> now
-    processing_date_cfg = _pick_from_config("Processing_date", "processing_date")
-    processing_date_ds = _pick_from_ds("Processing_date", "processing_date")
-    processing_date = _as_str(processing_date_cfg or processing_date_ds)
-    if not processing_date:
-        processing_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    # History: keep ds History unless config provides History; append optional history_append
-    history_base = _pick_from_config("History", "history")
-    if history_base is None:
-        history_base = _pick_from_ds("History", "history")
-    history = _as_str(history_base or "Processed with dial2samd.py")
-
-    history_append = _as_str(_pick_from_config("history_append", "History_append") or "")
-    if history_append:
-        history = f"{history} | {history_append}" if history else history_append
-
-    # ---------- Write ordered attrs ----------
-    # SAMD binding order:
-    ordered = OrderedDict()
-    ordered["Title"] = title
-    ordered["Institution"] = institution
-    ordered["Contact_person"] = contact_person
-    ordered["Source"] = source
-    ordered["History"] = history
-    ordered["Dependencies"] = dependencies
-    ordered["Conventions"] = conventions
-    ordered["Processing_date"] = processing_date
-    ordered["Author"] = author
-    ordered["Comments"] = comments
-    ordered["License"] = license_
-
-    # Keep any other existing attrs not in the standard list
-    ds_out = ds.copy()
-    for k, v in ds_out.attrs.items():
-        if k not in ordered:
-            ordered[k] = v
-    ds_out.attrs = ordered
-    
-    #############################
-    LAT_KEYS = ("lat", "latitude", "Latitude", "LAT", "nav_lat",\
-         "station_lat", "sensor_lat")
-    LON_KEYS = ("lon", "longitude", "Longitude", "LON", "nav_lon",\
-          "station_lon", "sensor_lon")
-    ZSL_KEYS = ("zsl", "altitude", "Altitude", "altitude_asl",\
-               "alt_asl", "height_asl", "station_altitude",\
-                "station_zsl", "elevation", "Elevation")
-
-    def _first_float_from_dataset(keys: tuple[str, ...]) -> Optional[float]:
-        for k in keys:
-            if k in ds_out.variables:
-                try:
-                    return _as_float(ds_out[k].values.item() if ds_out[k].size == 1 else ds_out[k].values)
-                except Exception:
-                    pass
-            if k in ds_out.coords:
-                try:
-                    return _as_float(ds_out.coords[k].values.item() if             ds_out.coords[k].size == 1 else ds_out.coords[k].values)
-                except Exception:
-                    pass
-            if k in ds_out.attrs:
-                try:
-                    return _as_float(ds_out.attrs[k])
-                except Exception:
-                    pass
-        return None
-
-    def _first_float_from_config(keys: tuple[str, ...]) -> Optional[float]:
-        """Hole numerischen Wert aus config (attrs werden nicht angefasst)."""
-        for k in keys:
-            if k in config and config[k] is not None and str(config[k]).strip() != "":
-                try:
-                    return _as_float(config[k])
-                except Exception:
-                    pass
-        return None
-
-    def _drop_all_aliases(keys: tuple[str, ...], keep: str) -> None:
-        for k in keys:
-            if k == keep:
-                continue
-            if k in ds_out.coords:
-                ds_out = ds_out.reset_coords(k, drop=True)
-            if k in ds_out.variables:
-                ds_out = ds_out.drop_vars(k, errors="ignore")
-
-
-    def _set_scalar_coord(name: str, value: float, standard_name: str, units: str, comments_: str) -> None:
-        nonlocal ds_out
-        ds_out = ds_out.assign_coords({name: xr.DataArray(float(value))})
-        ds_out.coords[name].attrs["standard_name"] = standard_name
-        ds_out.coords[name].attrs["units"] = units
-        ds_out.coords[name].attrs["comments"] = comments_
-    
-    # --- Werte bestimmen: ds zuerst, config überschreibt ---
-    lat_val = _first_float_from_dataset(LAT_KEYS)
-    lon_val = _first_float_from_dataset(LON_KEYS)
-    zsl_val = _first_float_from_dataset(ZSL_KEYS)
-
-    lat_cfg = _first_float_from_config(LAT_KEYS)
-    lon_cfg = _first_float_from_config(LON_KEYS)
-    zsl_cfg = _first_float_from_config(ZSL_KEYS)
-
-    if lat_cfg is not None:
-        lat_val = lat_cfg
-    if lon_cfg is not None:
-        lon_val = lon_cfg
-    if zsl_cfg is not None:
-        zsl_val = zsl_cfg
-
-    ds_out = ds_out.copy()
-    for k in LAT_KEYS:
-        if k != "lat" and (k in ds_out.coords or k in ds_out.variables):
-            if k in ds_out.coords:
-                ds_out = ds_out.reset_coords(k, drop=True)
-            ds_out = ds_out.drop_vars(k, errors="ignore")
-    for k in LON_KEYS:
-        if k != "lon" and (k in ds_out.coords or k in ds_out.variables):
-            if k in ds_out.coords:
-                ds_out = ds_out.reset_coords(k, drop=True)
-            ds_out = ds_out.drop_vars(k, errors="ignore")
-    for k in ZSL_KEYS:
-        if k != "zsl" and (k in ds_out.coords or k in ds_out.variables):
-            if k in ds_out.coords:
-                ds_out = ds_out.reset_coords(k, drop=True)
-            ds_out = ds_out.drop_vars(k, errors="ignore")
-
-    # --- Zielvariablen schreiben/überschreiben ---
-    if lat_val is not None:
-        _set_scalar_coord("lat", lat_val, "latitude", "degrees_north",\
-                "Latitude of instrument location")
-
-    if lon_val is not None:
-        _set_scalar_coord("lon", lon_val, "longitude",\
-                "degrees_east", "Longitude of instrument location")
-
-    if zsl_val is not None:
-        _set_scalar_coord("zsl", zsl_val, "altitude", "m",\
-            "Altitude of instrument above mean sea level")
-
-    ds_out.attrs = remove_lowercase_duplicates(ds_out.attrs) 
-    return ds_out
-
-def name_not_in(ds: xr.Dataset, varname: str) -> bool:
-    """Helper: avoid overwriting existing variables."""
-    return (varname not in ds.variables) and (varname not in ds.coords)
 
 ##############################################################################
 # 3rd: Main code:
@@ -958,22 +774,26 @@ if __name__=="__main__":
     # Get new file name:
     outfile = new_file_name(args)
     print("Output filename: ", outfile)
-    
-    
-    #########
-    # These two functions are ugly, because AI wrote them:
+
+    # Metadata adding from old file, config file and defaults makes sense now:
     # Add global attributes for gb:
     ds = add_samd_attributes(ds)
+    
+    
+
+
+    #########
+    # These two functions are ugly, because AI wrote them:
     # Write XML file with Metadata:
     write_samd_metadata_xml(ds, args, outfile)
     #########
+
+
     
+
+
     # Write NetCDF4_CLASSIC file:
     ds.to_netcdf(outfile, format="NETCDF4_CLASSIC")
-    
-    ##########
-    # print("Attribute: ", ds.data_vars)
-    # print("Attribute: ", ds.coords)
     
     
     
