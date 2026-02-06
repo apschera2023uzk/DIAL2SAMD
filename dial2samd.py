@@ -114,13 +114,13 @@ config = load_config("config.txt")
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
-        description="Preprocess radiosonde data for RTTOV-gb input format."
+        description="Processes one day of VAISALA_DIAL DA10 outputs into one NetCDF-file adhering to SamD Standard by UHH."
     )
     parser.add_argument(
         "--input", "-i",
         type=str,
         default=os.path.expanduser("~/atris/dial"),
-        help="Directory with dial data to process"
+        help="Directory with dial data to process expects folder structure ./yyyy/mm/dd/ within input directory."
     )
     parser.add_argument(
         "--output", "-o",
@@ -132,42 +132,44 @@ def parse_arguments():
         "--date", "-d",
         type=str,
         default=os.path.expanduser("20240805"),
-        help="Day to process"
+        help="Day to process in Format 20240805"
     )    
     return parser.parse_args()
 
 ##############################################################################
 
-def read_inputs_of_day(args, file_pattern=config["file_pattern"]):
+def read_inputs_of_day(args, pattern):
     root = args.input
     date = args.date
     path = root+"/"+date[0:4]+"/"+date[4:6]+"/"+date[6:8]+"/"    
     
-    # files_abs = glob.glob(path+"*ABS*"+date+"*.nc")
-    files_wv = glob.glob(path+file_pattern+date+"*.nc")
+    files = glob.glob(path+pattern+date+"*.nc")
+
+    if files==[]:
+        return None
  
-    ds = xr.open_mfdataset(files_wv)
-    # 18
-    # 1369
-    # 20 min => 3*24 * 18 Zeitschirtte: 1296 Zeitschritte...
-    
-    # print(ds)
+    ds = xr.open_mfdataset(files)
     
     return ds
     
 ##############################################################################
 
-def new_file_name(args, config=config):
+def new_file_name(args, var,  config=config):
     root = args.input
     date = args.date
     path = root+"/"+date[0:4]+"/"+date[4:6]+"/"+date[6:8]+"/"  
-    old_file = glob.glob(path+config["kkk"]+"_"+config["sss"]+"_"+config["instr"]+"_"+config["lll"]+"_"+config["var"]+"_*_"+args.date+"000000.nc")
+    old_file = sorted(glob.glob(path+config["kkk"]+"_"+\
+        config["sss"]+"_"+config["instr"]+"_"+\
+        config["lll"]+"_"+var+"_*_"+args.date+"000000.nc"))
+
+    # Versionskontrolle:
     if old_file==[]:
         vn = 0
     else:
-        vn = int((old_file[0].split("_")[-2]).split("v")[-1])+1
+        vn = int((old_file[-1].split("_")[-2]).split("v")[-1])+1
+
     version = f"v{vn:02d}"
-    name=config["kkk"]+"_"+config["sss"]+"_"+config["instr"]+"_"+config["lll"]+"_"+config["var"]+"_"+version+"_"+args.date+"000000.nc"
+    name=config["kkk"]+"_"+config["sss"]+"_"+config["instr"]+"_"+config["lll"]+"_"+var+"_"+version+"_"+args.date+"000000.nc"
     
     return path+name
 
@@ -206,8 +208,44 @@ def order_attrs(ds, desired_order=None, inplace=False):
     return target
 
 
-############################################################################## 
+##############################################################################
 
+def add_registered_attrs(ds: xr.Dataset) -> xr.Dataset:
+    VAR_ATTRS = {
+        "zsl": {
+            "standard_name": "altitude",
+            "long_name": "altitude above mean sea level",
+            "units": "m",
+        },
+        "lat": {
+            "standard_name": "latitude",
+             # "long_name": "altitude above mean sea level",
+            "comments":"Latidude of instrument location",
+            "units": "degrees_north",
+        },
+        "lon": {
+            "standard_name": "longitude",
+             # "long_name": "altitude above mean sea level",
+            "comments":"Longitude of instrument location",
+            "units": "degrees_east",
+        },
+        "humr": {
+            "standard_name": "humidity_mixing_ratio",
+             "long_name": "Humidity mixing ratio (water vapor : dry air)",
+        },
+    }
+    ds = ds.copy()  # avoid modifying in place
+
+    for var_name, extra_attrs in VAR_ATTRS.items():
+        if var_name in ds.data_vars:
+            # Merge: registry attrs + existing attrs (existing wins on conflicts)
+            current_attrs = ds[var_name].attrs or {}
+            new_attrs = {**extra_attrs, **current_attrs}
+            ds[var_name].attrs = new_attrs
+
+    return ds
+
+##############################################################################
 
 def adhere2metadata_name_convs(ds):
     rename_map = {"title": "Title", "institution": "Institution",\
@@ -220,6 +258,43 @@ def adhere2metadata_name_convs(ds):
     for old, new in rename_map.items():
         if old in ds.attrs:
             ds.attrs[new] = ds.attrs.pop(old)
+
+    ###
+    # Variables:
+    rename_vars =  {"water_vapor":"humr", "azimuth_angle":"azi",\
+         "latitude":"lat", "longitude":"lon", "elevation": "zsl",\
+         "tilt_angle": "zenith", "cloud_base_heights": "zcb",\
+         "cloud_thickness":"cth", "water_vapor_max_range":"humr_max_range",\
+        "water_vapor_uncertainty":"humr_uncertainty",\
+        "water_vapor_valid":"humr_valid", "beta_att": "beta",\
+        "beta_att_noise_level":"beta_noise_level", "beta_att_sum": "beta_sum",\
+        "surface_water_vapor":"humr_srf"}
+
+    valid_renames = {old: new for old, new in rename_vars.items() if old in ds}
+    if valid_renames:
+        ds = ds.rename_vars(valid_renames)
+
+    '''
+If you have extra time, check the stuff on coordinates in SamD doc...
+=> Coordinates???
+NetCDF Variable	Table Match (CF or suggested)	Unit Match
+
+These are coordinates:
+
+dimensions:
+time = 12345; (”UNLIMITED” as possible)
+nv = 2 ; (Number of boundaries, in this case start and end of time interval => 2)
+variables:
+double time (time) ;
+time:standard_name = ”time” ;
+time:units = ”seconds since 1970-01-01 00:00:00” ; (in UTC)
+time:bounds = ”time_bnds” ;
+double time_bnds (time,nv)
+
+Also for ABS:
+Check all variables form ABS file and compare them with
+ table in SamD PDF on pages 43-49
+    '''
 
     return ds    
 
@@ -245,7 +320,7 @@ def add_default_metadata(ds):
         "Contact_person": "Ulrich Loehnert (Loehnert@meteo.uni-koeln.de)",
         "Author": "Ulrich Loehnert (Loehnert@meteo.uni-koeln.de)",
         "License": (
-            "CC BY 4.0; For non-commercial use only. This data is subject to the "
+            "CC BY 4.0; For non-commercial use only."
             "HD(CP)² data policy to be found at https://www.hdcp2.eu and in the "
             "HD(CP)² Observation Data Product standard."
         ),
@@ -262,15 +337,45 @@ def add_default_metadata(ds):
 
 def add_config_values2metadata(ds, config=config):
     for key, var in config.items():
-        ds.attrs[key] = var
+        if not (key in ["file_pattern","vars", "sss","lll","instr", "kkk"]):
+            ds.attrs[key] = var
+    return ds
+
+############################################################################## 
+
+def clean_attrs(ds):
+    ds = ds.copy()
+    # globale Attribute
+    clean_global = {}
+    for k, v in ds.attrs.items():
+        if isinstance(v, (str, int, float)):
+            clean_global[k] = v
+        else:
+            # ggf. in String umwandeln oder weglassen
+            clean_global[k] = str(v)
+    ds.attrs = clean_global
+
+    # Variablen-Attribute
+    for name, da in ds.data_vars.items():
+        clean_var = {}
+        for k, v in da.attrs.items():
+            if isinstance(v, (str, int, float)):
+                clean_var[k] = v
+            else:
+                clean_var[k] = str(v)
+        da.attrs = clean_var
+
     return ds
 
 ############################################################################## 
 
 def add_samd_attributes(ds: xr.Dataset, config=config) -> xr.Dataset:
 
+    # print("\n\nBefore: ", ds, "\n\n")
+
     # 1st Rename different naming conventions in ds:
     ds_new = adhere2metadata_name_convs(ds)  
+    ds_new = add_registered_attrs(ds_new)
 
     # 2nd Add all default values to ds (if they are missing):
     ds_new = add_default_metadata(ds_new)
@@ -280,6 +385,9 @@ def add_samd_attributes(ds: xr.Dataset, config=config) -> xr.Dataset:
 
     # 4th order compulsory attributes up:
     ds_new = order_attrs(ds_new)
+    ds_new = clean_attrs(ds_new)
+
+    # print("\n\nAfterwards: ", ds_new)
 
     return ds_new
 
@@ -716,7 +824,7 @@ def write_samd_metadata_xml(
 
     # dimensions
     dims_el = ET.SubElement(netcdf_el, "dimensions")
-    for dim_name, dim_len in ds.dims.items():
+    for dim_name, dim_len in ds.sizes.items():
         d_el = ET.SubElement(dims_el, "dimension")
         _set_text(d_el, "name", dim_name)
         _set_text(d_el, "length", dim_len)
@@ -768,32 +876,33 @@ def write_samd_metadata_xml(
 if __name__=="__main__":
     args = parse_arguments()
     
-    # Read inputs:
-    ds = read_inputs_of_day(args)
-    
-    # Get new file name:
-    outfile = new_file_name(args)
-    print("Output filename: ", outfile)
+    for pattern, var in zip(config["file_pattern"],config["vars"]):
+        print(pattern)
+ 
+        # Read inputs:
+        ds = read_inputs_of_day(args,pattern)
+        if not ds:
+            print("Did not find files of pattern: ", pattern)
+            print("Variable ", var, " is not processed!")
+            continue
 
-    # Metadata adding from old file, config file and defaults makes sense now:
-    # Add global attributes for gb:
-    ds = add_samd_attributes(ds)
-    
-    
+        # Metadata adding from old file, config file and defaults makes sense now:
+        # Add global attributes for gb:
+        ds = add_samd_attributes(ds)
 
+        # Get new file name:
+        outfile = new_file_name(args, var)
+        print("Output filename: ", outfile)
 
-    #########
-    # These two functions are ugly, because AI wrote them:
-    # Write XML file with Metadata:
-    write_samd_metadata_xml(ds, args, outfile)
-    #########
+        #########
+        # This function is still ugly, because AI wrote it:
+        # Write XML file with Metadata:
+        write_samd_metadata_xml(ds, args, outfile)
+        #########
 
+        # Write NetCDF4_CLASSIC file:
+        ds.to_netcdf(outfile, format="NETCDF4_CLASSIC", unlimited_dims=['time'])
 
-    
-
-
-    # Write NetCDF4_CLASSIC file:
-    ds.to_netcdf(outfile, format="NETCDF4_CLASSIC")
     
     
     

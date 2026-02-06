@@ -1,16 +1,16 @@
 
 ###################
 # Filename - parts:
-file_pattern=*WV*
+file_pattern=*WV*, *ABS*
+vars=humr,beta
 sss=joy
 lll=l1
-var=humr
 instr=dial
 kkk=vitII
 
 ###################
 # Global attributes NetCDF:
-License = "CC BY 4.0; For non-commercial use only. This data is subject to the HD(CP)² data policy to be found at www.hdcp2.eu and in the HD(CP)² Observation Data Product standard."
+# License = "CC BY 4.0; For non-commercial use only. This data is subject to the HD(CP)² data policy to be found at www.hdcp2.eu and in the HD(CP)² Observation Data Product standard."
 # Title=dial_humr
 # Institution=IGMK
 # Contact_person=Ulrich Loehnert (Loehnert@meteo.uni-koeln.de)
