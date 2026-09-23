@@ -319,11 +319,9 @@ def add_default_metadata(ds):
         "Processing_date": processing_date,
         "Contact_person": "Ulrich Loehnert (Loehnert@meteo.uni-koeln.de)",
         "Author": "Ulrich Loehnert (Loehnert@meteo.uni-koeln.de)",
-        "License": (
-            "CC BY 4.0; For non-commercial use only."
-            "HD(CP)² data policy to be found at https://www.hdcp2.eu and in the "
-            "HD(CP)² Observation Data Product standard."
-        ),
+        "License":
+            "CC BY 4.0; For non-commercial use only.",
+        'file_temporal_span_in_minutes': '1440',
     }
 
     # Add defaults without overwriting existing attrs
@@ -539,14 +537,14 @@ def write_samd_metadata_xml(
     # sensible defaults (vitII / DIAL)
     # -----------------------
     defaults = {
-        "project": "VITAL II (vitII)",
+        "project": "VITAL I (vitI)",
         "region": "Europe/Germany",
-        "dsName": "vitII_dial_l1_any",  # you can override in config
+        "dsName": "vitI_dial_l1_any",  # you can override in config
         "fileAverageSize_value": "0",
         "fileAverageSize_unit": "MB",
         "fileAverageSize_status": "unknown",
         "datatype": "daily",
-        "provenance": "Compiled DIAL files and harmonized metadata for the VITAL II campaign.",
+        "provenance": "Compiled DIAL files and harmonized metadata for the VITAL I campaign.",
         "resolution_temporal_value": "60",
         "resolution_temporal_unit": "s",
         "resolution_horizontal_value": "0",

@@ -6,7 +6,7 @@ vars=humr,beta
 sss=joy
 lll=l1
 instr=dial
-kkk=vitII
+kkk=vitI
 
 ###################
 # Global attributes NetCDF:
